@@ -1,7 +1,14 @@
 # synthDrivers/tripletalk.py
+#
 # NVDA Synthesizer Driver for the Triple-Talk USB and USB Mini
 # by RetroBunn
-# DISCLAIMER: This driver was vibe coded with the assistance of an AI and may contain errors or unintended behaviour as a result. Real human feedback is always welcomed.
+#
+# ttusbd.dll is loaded from C:\WINDOWS, where the Triple-Talk driver installer places it.
+#
+# DISCLAIMER: This add-on was vibe coded with the assistance of an AI and may contain
+# errors or unintended behaviour as a result. Real human contributions and bug fixes
+# are welcomed — if you encounter an issue, feel free to submit a correction.
+#
 
 import os
 import ctypes
@@ -57,33 +64,87 @@ _VOICES = {
 # Tone is NVDA 0-100 scale, step-50 (tt * 50): 0=Bass, 50=Normal, 100=Treble.
 
 _VOICE_PITCH = {
-    '0':  50, '1':  10, '2':  40, '3':  60, '4':  40,
-    '5':  50, '6':  15, '7':  80, '8':  20, '9':  60, '10': 99,
+    '0':  50,
+    '1':  10,
+    '2':  40,
+    '3':  60,
+    '4':  40,
+    '5':  50,
+    '6':  15,
+    '7':  80,
+    '8':  20,
+    '9':  60,
+    '10': 99,
 }
 
 _VOICE_FORMANT = {
-    '0':  50, '1':  40, '2':  46, '3':  52, '4':  50,
-    '5':  40, '6':  58, '7':  54, '8':  15, '9':  99, '10': 67,
+    '0':  50,
+    '1':  40,
+    '2':  46,
+    '3':  52,
+    '4':  50,
+    '5':  40,
+    '6':  58,
+    '7':  54,
+    '8':  15,
+    '9':  99,
+    '10': 67,
 }
 
 _VOICE_INFLECTION = {
-    '0':  50, '1':  60, '2':  50, '3':  40, '4':  50,
-    '5':  70, '6':  70, '7':   0, '8':  50, '9':  50, '10': 50,
+    '0':  50,
+    '1':  60,
+    '2':  50,
+    '3':  40,
+    '4':  50,
+    '5':  70,
+    '6':  70,
+    '7':   0,
+    '8':  50,
+    '9':  50,
+    '10': 50,
 }
 
 _VOICE_ARTICULATION = {
-    '0':  50, '1':  40, '2':  50, '3':  60, '4':  40,
-    '5':  60, '6':  60, '7':  40, '8':  50, '9':  50, '10': 50,
+    '0':  50,
+    '1':  40,
+    '2':  50,
+    '3':  60,
+    '4':  40,
+    '5':  60,
+    '6':  60,
+    '7':  40,
+    '8':  50,
+    '9':  50,
+    '10': 50,
 }
 
 _VOICE_REVERB = {
-    '0':   0, '1':  30, '2':   0, '3':   0, '4':  90,
-    '5':   0, '6':   0, '7':  60, '8':  20, '9':   0, '10':  0,
+    '0':   0,
+    '1':  30,
+    '2':   0,
+    '3':   0,
+    '4':  90,
+    '5':   0,
+    '6':   0,
+    '7':  60,
+    '8':  20,
+    '9':   0,
+    '10':  0,
 }
 
 _VOICE_TEXTDELAY = {
-    '0':   0, '1':   0, '2':   0, '3':   0, '4':   0,
-    '5':   0, '6':   0, '7':   7, '8':   0, '9':   0, '10':  0,
+    '0':   0,
+    '1':   0,
+    '2':   0,
+    '3':   0,
+    '4':   0,
+    '5':   0,
+    '6':   0,
+    '7':   7,
+    '8':   0,
+    '9':   0,
+    '10':  0,
 }
 
 _VOICE_TONE = {
@@ -124,6 +185,8 @@ def _loadDll():
 
 
 class SynthDriver(synthDriverHandler.SynthDriver):
+    """NVDA synthesizer driver for the Triple-Talk USB and USB Mini."""
+
     name        = 'tripletalk'
     description = 'Triple-Talk USB/USB Mini'
 
