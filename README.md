@@ -13,10 +13,12 @@ The eight standard voices are available, including:
 - Biff
 - Skip
 - Robo Robert
+
 The TripleTalk USB Mini, being based on the RC8660 chip, includes three additional voices:
 - Goliath
 - Alvin
 - Gretchen
+
 All these voices were taken from the official RC8660 developer manual, including the proper names for Big Bob and Ricochet Randy, which have been renamed in the official TripleTalk USB developer manual, but I decided to use the official names.
 All extra TripleTalk parameters are accessible via NVDA's speech settings, including the following extra parameters:
 - Formant (range 0 to 99 on the Mini)
@@ -24,6 +26,7 @@ All extra TripleTalk parameters are accessible via NVDA's speech settings, inclu
 - Reverb/Delay (range 0 to 9)
 - Text Delay (range 0 to 15)
 - Tone (with three values; 0 = Bass, 1 = Normal, and 2 = Treble)
+
 ## Requirements
 This driver has been tested with NVDA 2025.3, but also works with NVDA 2025.1. I cannot guarantee that it works with NVDA 2026.1 (which is set to be released soon).
 In order to use this add-on, you will need the TripleTalk USB Mini drivers to be installed and working. You can get them from [this mirror](https://dectalk.nu/Software%20and%20Manuals/Hardware/TripleTalk/Software/ttum-disk101.zip)
