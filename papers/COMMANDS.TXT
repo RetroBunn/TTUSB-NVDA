@@ -1,0 +1,107 @@
+                                Triple-Talk PCI/USB     
+                                
+Access Solutions
+4536 Edison Ave.
+Sacramento, CA. 95821
+Phone: (916) 481-3559
+Web: www.axsol.com
+E-mail: james@axsol.com
+
+All Triple-Talk commands are composed of the command character, a one or two-digit ASCII parameter n, and an ASCII character which uniquely identifies the command. Some commands simply enable or disable a feature of Triple-Talk; these commands do not require a parameter. The command formats are:
+
+          <command character><n><letter>
+
+
+The command character
+The default Triple-Talk command character is Control-A (01h). The command character itself can be spoken by Triple-Talk by sending it twice in a row: Control-A Control-A. This special command allows the command character to be spoken without affecting the operation of Triple-Talk, and without having to change to another command character and then back again.
+
+Changing the command character
+The command character can be changed to another control character (01h-1Ah) by sending the current command character, followed by the new character. To change the command character to Control-D, for example, issue the command Control-A Control-D. To change it back, issue the command Control-D Control-A. It's generally a good idea to change the command character if the forthcoming text contains characters which may otherwise be interpreted as command characters (and hence commands).
+The command character can be unconditionally reset to Control-A by sending Control-^ (1Eh) to Triple-Talk while operating in the Text, Character, or Phoneme modes.
+
+
+Command parameters
+Command parameters are composed of one or two-digit ASCII numbers.
+Triple-Talk supports two types of parameters: absolute and relative.
+Absolute parameters explicitly specify the parameter's new value, such as 9S or 3B. Relative parameters specify a displacement from a parameter's current value, not the actual new value itself.
+Relative parameters can specify either a positive or negative displacement from a parameter's current value. For example, the Volume command +2V increases the current volume by two (V + 2 -> V).
+If the current volume is 4, it will increase to 6 after the command has executed. The command -2V will have a similar effect, except the volume will be decreased by two.
+
+If the value of a parameter falls outside the command's range, the value will wrap around, instead of being truncated. For example, if the current volume is 7 and the command +4V is issued, the resultant volume will be (7 + 4) - 10, or 1, since the volume range is 0-9.
+When writing application programs for Triple-Talk, it is recommended that relative parameters be used for temporarily changing voice attributes (such as raising the pitch of a word), using absolute-parameter commands only once in the program's initialization routine. This way, if the base value of an attribute must be changed, it only needs to be changed in the initialization routine.
+
+Command Parameter Descriptions
+This section describes the software commands supported by Triple-Talk. 
+
+Voice (nO)
+Triple-Talk's TTS synthesizer has eleven standard voices to choose from, as well as a number of individual voice controls that can be used to independently vary the voice characteristics. The Voice command enables Triple-Talk's voice to be changed anytime, such as for identifying text attributes (italics, bold, underline, etc.).
+Voices are selected with the commands 0O through 7O, as shown in Table 1. Note that because this command alters numerous internal voice parameters (pitch, tone, etc.), it should precede any individual voice parameter commands.
+
+n    Voice Name
+0    Perfect Paul (default)
+1    Vader
+2    Jammin Jimmy
+3    Precise Pete
+4    Mountain Mike
+5    Biff
+6    Skip
+7    Robo Robert
+8    Goliath
+9    Alvin
+10   Gretchen
+Table 1.  Voice Selections
+Some programs, such as screen readers for the blind, often send voice control commands (such as pitch) to Triple-Talk. This can change the way a voice sounds, or even completely negate any voice change you might make. If this happens with your screen reader, try adjusting its pitch command to restore the desired voice (some screen  readers allow you to do this permanently by editing one of its parameter files - check your screen reader documentation for details).
+
+
+
+Articulation (nA)
+This command adjusts the articulation level, from 0A through 9A.
+Excessively low articulation values tend to make the voice sound slurred; very high values, on the other hand, can make the voice sound choppy. In general, the articulation should be increased as the speed is increased. The default articulation is 5A.
+
+Expression (E/nE)
+Expression, or intonation, is the variation of pitch within a sentence or phrase. When expression is enabled (n > 0), Triple-Talk attempts to mimic the pitch patterns of human speech. For example, when a sentence ends with a period, the pitch drops at the end of the sentence; a question mark will cause the pitch to rise.
+The optional parameter n determines the degree of intonation. 0E provides no intonation (monotone), whereas 9E is very animated sounding. 5E is the default setting.
+
+Formant Frequency (nF)
+This command adjusts the synthesizer's overall frequency response (vocal tract formant frequencies), over the range 0F through 99F. By varying the frequency, voice quality can be fine-tuned or voice type changed. The default frequency is 50F.
+
+Speed (nS)
+The synthesizer's overall rate (speed) of speech can be adjusted with this command, from 0S (slowest) through 13S (fastest). The default speed is 3S.
+
+
+Pitch (nP)
+This command varies the synthesizer's pitch over a wide range, which can be used to change the average pitch during speech production, produce manual intonation, or create sound effects (including singing). Pitch values can range from 0P through 99P; the default is 50P.
+
+
+Volume (nV)
+This command controls the synthesizer's volume level, from 0V through 9V. 0V yields the lowest possible volume; maximum volume is attained at 9V. The default volume is 5V. The Volume command can be used to set a new listening level or create emphasis in speech. 
+
+Tone (nX)
+The synthesizer supports three tone settings, bass (0X), normal (1X), and treble (2X), which work much like the bass and treble controls on a stereo. The best setting to use depends on the speaker being used and personal preference. Normal (1X) is the default setting.
+
+Reverb (nR)
+This command is used to add reverberation to the voice. 0R (the default) introduces no reverb; increasing values of n correspondingly increase the reverb delay and effect. 9R is the maximum setting.
+
+Punctuation Filter (nB)
+Depending on the application, it may be desirable to limit the reading of certain punctuation. For example, if Triple-Talk is used to proofread documents, the application may call for only unusual punctuation to be read. On the other hand, an application which orally echoes keyboard entries on a computer for a blind user may require that all punctuation be spoken.
+Triple-Talk supports four primary levels of punctuation filtering, as shown in Table 2. Besides determining which punctuation characters will be spoken and which will not, the punctuation filter also determines how number strings will be read.
+
+n    Punctuation Spoken
+0    All
+1    Most (all but CR, LF, Space)
+2    Some ($%&#@=+*^<>|\)
+3    None
+Table 2.  Base Punctuation Settings
+The values of n listed in the table cause number strings to be read a digit at a time (e.g., 0123 = "zero one two three"). Adding 4 to these values (n = 4-7) causes number strings to be read as numbers (0123 = "one hundred twenty three"). N = 6 and 7 also cause currency strings to be read as they are normally spoken - for example, $11.95 is read as "eleven dollars and ninety five cents." Finally, adding 8 to these values (n = 8-15) disables leading zero suppression; number strings beginning with zero will always be read a digit at a time.
+The default filter setting is 6B (Some punctuation, Numbers mode, leading zero suppression on).
+
+
+Reset (@)
+This command clears the input buffer (see "Clear" command) and restores all of the voice parameters to their default settings. The exception dictionary memory is also cleared. 
+
+Text Mode/Delay (T/nT)
+This command places Triple-Talk in the Text operating mode. The optional delay parameter n is used to create a variable pause between words. The shortest, and default delay of 0, is used for normal speech. For users not accustomed to synthetic speech, the synthesizer's intelligibility may be improved by introducing a delay. The longest delay that can be specified is 15. If the delay parameter is omitted, the current (last set) value will be used. This feature is useful for returning from another operating mode.
+
+Special Commands: 
+Ctrl-X Silences speech and clears synthesizer input buffer.
+Ctrl-Y Skips to next index marker in input buffer and begins speaking.
