@@ -209,6 +209,14 @@ class SynthDriver(synthDriverHandler.SynthDriver):
         _NumericSynthSetting('tone', '&Tone', minStep=50),
     )
 
+    supportedCommands = {
+        IndexCommand,
+        RateCommand,
+        PitchCommand,
+        VolumeCommand,
+        BreakCommand,
+    }
+
     _DEFAULT_VOICE = '0'
 
     @classmethod
@@ -237,11 +245,12 @@ class SynthDriver(synthDriverHandler.SynthDriver):
     def __init__(self):
         self._dll        = _loadDll()
         self._terminated = False
+        self._writeLock  = threading.Lock()
 
         # Initialise all settings from the default voice's baselines.
         v = self._DEFAULT_VOICE
         self._voice        = v
-        self._rate         = 30   # TT default 3S
+        self._rate         = 50   # TT default 5S -> NVDA 40 (nearest step-10 to round(5/13*100)=38)
         self._pitch        = _VOICE_PITCH[v]
         self._inflection   = _VOICE_INFLECTION[v]
         self._volume       = 50   # TT default 5V
@@ -272,8 +281,9 @@ class SynthDriver(synthDriverHandler.SynthDriver):
     # ------------------------------------------------------------------
 
     def _write(self, data: bytes):
-        """Write raw bytes to the synth."""
-        self._dll.USBTT_WriteString(data, len(data))
+        """Write raw bytes to the synth. Thread-safe via _writeLock."""
+        with self._writeLock:
+            self._dll.USBTT_WriteString(data, len(data))
 
     def _sendImmediate(self, data: bytes):
         """Write bytes immediately, bypassing the input buffer."""
@@ -307,8 +317,8 @@ class SynthDriver(synthDriverHandler.SynthDriver):
         self._write(_CMD + self._voice.encode('ascii') + b'O')
 
     def _applyRate(self):
-        # NVDA 0-100 (step 10) -> TT 0-9
-        self._write(self._buildCmd(min(self._rate // 10, 9), 'S'))
+        # NVDA 0-100 (step 10) -> TT 0-13
+        self._write(self._buildCmd(min(round(self._rate * 13 / 100), 13), 'S'))
 
     def _applyPitch(self):
         # Passed directly, clamped to TT max of 99
@@ -353,9 +363,12 @@ class SynthDriver(synthDriverHandler.SynthDriver):
             if item is None:
                 break
             try:
-                self._processSpeechSequence(item)
+                if callable(item):
+                    item()
+                else:
+                    self._processSpeechSequence(item)
             except Exception:
-                log.exception('Triple-Talk: error processing speech sequence')
+                log.exception('Triple-Talk: error processing speech queue item')
             finally:
                 self._queue.task_done()
 
@@ -384,6 +397,8 @@ class SynthDriver(synthDriverHandler.SynthDriver):
                 buf.extend(self._buildCmd(min(item.newValue // 10, 9), 'S'))
 
             elif isinstance(item, PitchCommand):
+                # Absolute inline pitch command — RC8660 parameter commands take
+                # effect immediately in the stream without needing a CR flush.
                 buf.extend(self._buildCmd(min(item.newValue, 99), 'P'))
 
             elif isinstance(item, VolumeCommand):
@@ -430,6 +445,9 @@ class SynthDriver(synthDriverHandler.SynthDriver):
     def _set_voice(self, value):
         if value not in _VOICES:
             return
+        # Update state attributes immediately (main thread) so NVDA's getters
+        # reflect the new values at once, then queue the hardware writes so they
+        # are serialised with any speech that follows this call.
         self._voice        = value
         self._pitch        = _VOICE_PITCH[value]
         self._inflection   = _VOICE_INFLECTION[value]
@@ -438,14 +456,23 @@ class SynthDriver(synthDriverHandler.SynthDriver):
         self._formant      = _VOICE_FORMANT[value]
         self._textdelay    = _VOICE_TEXTDELAY[value]
         self._tone         = _VOICE_TONE[value]
-        self._applyVoice()
-        self._applyPitch()
-        self._applyInflection()
-        self._applyArticulation()
-        self._applyReverb()
-        self._applyFormant()
-        self._applyTextdelay()
-        self._applyTone()
+        self._queue.put(self._applyVoiceParameters)
+
+    def _applyVoiceParameters(self):
+        """Apply all voice-dependent hardware parameters. Called via the queue."""
+        # Batch all parameter commands into a single locked write so the
+        # hardware never sees interleaved bytes from the worker thread.
+        cmd = (
+            _CMD + self._voice.encode('ascii') + b'O'
+            + self._buildCmd(min(self._pitch, 99), 'P')
+            + self._buildCmd(min(self._inflection // 10, 9), 'E')
+            + self._buildCmd(min(self._articulation // 10, 9), 'A')
+            + self._buildCmd(min(self._reverb // 10, 9), 'R')
+            + self._buildCmd(min(self._formant, 99), 'F')
+            + self._buildCmd(min(round(self._textdelay * 15 / 100), 15), 'T')
+            + self._buildCmd(min(self._tone // 50, 2), 'X')
+        )
+        self._write(cmd)
 
     # ------------------------------------------------------------------
     # Rate — NVDA 0-100 (step 10), TT 0-9
