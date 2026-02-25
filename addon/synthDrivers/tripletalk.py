@@ -16,6 +16,8 @@ import threading
 import queue
 import synthDriverHandler
 from synthDriverHandler import SynthDriver, VoiceInfo, synthIndexReached, synthDoneSpeaking
+from autoSettingsUtils.driverSetting import DriverSetting
+from collections import OrderedDict
 from speech.commands import (
     IndexCommand,
     RateCommand,
@@ -61,7 +63,7 @@ _VOICES = {
 # Pitch and formant are raw TT values (0-99), passed directly to hardware.
 # Inflection, articulation, and reverb are NVDA 0-100 scale, step-10 (tt * 10).
 # Text delay is NVDA 0-100 scale, step-7 (tt * 7).
-# Tone is NVDA 0-100 scale, step-50 (tt * 50): 0=Bass, 50=Normal, 100=Treble.
+# Tone is a raw TT string ('0'=Bass, '1'=Normal, '2'=Treble).
 
 _VOICE_PITCH = {
     '0':  50,
@@ -134,23 +136,44 @@ _VOICE_REVERB = {
 }
 
 _VOICE_TEXTDELAY = {
-    '0':   0,
-    '1':   0,
-    '2':   0,
-    '3':   0,
-    '4':   0,
-    '5':   0,
-    '6':   0,
-    '7':   7,
-    '8':   0,
-    '9':   0,
-    '10':  0,
+    '0':  '0',
+    '1':  '0',
+    '2':  '0',
+    '3':  '0',
+    '4':  '0',
+    '5':  '0',
+    '6':  '0',
+    '7':  '1',
+    '8':  '0',
+    '9':  '0',
+    '10': '0',
 }
 
+# Text delay combo box options — keyed by raw TT value, using VoiceInfo for NVDA compatibility
+_TEXTDELAYS = OrderedDict(
+    (str(i), VoiceInfo(str(i), str(i))) for i in range(16)
+)
+
 _VOICE_TONE = {
-    '0': 50, '1': 50, '2':  0, '3': 100, '4': 50,
-    '5':  0, '6':  0, '7': 50, '8': 50, '9': 100, '10': 100,
+    '0':  '1',
+    '1':  '1',
+    '2':  '0',
+    '3':  '2',
+    '4':  '1',
+    '5':  '0',
+    '6':  '0',
+    '7':  '1',
+    '8':  '1',
+    '9':  '2',
+    '10': '2',
 }
+
+# Tone combo box options — keyed by raw TT value, using VoiceInfo for NVDA compatibility
+_TONES = OrderedDict([
+    ('0', VoiceInfo('0', 'Bass')),
+    ('1', VoiceInfo('1', 'Normal')),
+    ('2', VoiceInfo('2', 'Treble')),
+])
 
 # Obtained at runtime so we never directly import a private NVDA class.
 _NumericSynthSetting = type(SynthDriver.RateSetting())
@@ -194,8 +217,8 @@ class SynthDriver(synthDriverHandler.SynthDriver):
     #   Voice, Rate, Pitch, Inflection, Volume        — standard NVDA settings
     #   Articulation, Reverb                          — 0-9 range, minStep=10
     #   Formant Frequency                             — 0-99 range, passed directly
-    #   Text Delay                                    — 0-15 range, minStep=7
-    #   Tone                                          — combo box (Bass/Normal/Treble)
+    #   Text Delay                                    — combo box (0-15)
+    #   Tone                                          — combo box (Bass / Normal / Treble)
     supportedSettings = (
         SynthDriver.VoiceSetting(),
         SynthDriver.RateSetting(minStep=10),
@@ -205,8 +228,8 @@ class SynthDriver(synthDriverHandler.SynthDriver):
         _NumericSynthSetting('articulation', '&Articulation',    minStep=10),
         _NumericSynthSetting('reverb',       'Re&verb',          minStep=10),
         _NumericSynthSetting('formant',      'Formant Frequency'            ),
-        _NumericSynthSetting('textdelay',    'Text &Delay',      minStep=7 ),
-        _NumericSynthSetting('tone', '&Tone', minStep=50),
+        DriverSetting('textdelay', 'Text &Delay'),
+        DriverSetting('tone', '&Tone'),
     )
 
     supportedCommands = {
@@ -250,7 +273,7 @@ class SynthDriver(synthDriverHandler.SynthDriver):
         # Initialise all settings from the default voice's baselines.
         v = self._DEFAULT_VOICE
         self._voice        = v
-        self._rate         = 50   # TT default 5S -> NVDA 40 (nearest step-10 to round(5/13*100)=38)
+        self._rate         = 50   # TT default 5S -> NVDA 50 (step-10 aligned)
         self._pitch        = _VOICE_PITCH[v]
         self._inflection   = _VOICE_INFLECTION[v]
         self._volume       = 50   # TT default 5V
@@ -317,8 +340,8 @@ class SynthDriver(synthDriverHandler.SynthDriver):
         self._write(_CMD + self._voice.encode('ascii') + b'O')
 
     def _applyRate(self):
-        # NVDA 0-100 (step 10) -> TT 0-13
-        self._write(self._buildCmd(min(round(self._rate * 13 / 100), 13), 'S'))
+        # NVDA 0-100 (step 10) -> TT 0-9 via integer division, clamped at 9
+        self._write(self._buildCmd(min(self._rate // 10, 9), 'S'))
 
     def _applyPitch(self):
         # Passed directly, clamped to TT max of 99
@@ -345,12 +368,12 @@ class SynthDriver(synthDriverHandler.SynthDriver):
         self._write(self._buildCmd(min(self._formant, 99), 'F'))
 
     def _applyTextdelay(self):
-        # NVDA 0-100 (step 7) -> TT 0-15; rounding ensures TT 15 is reachable
-        self._write(self._buildCmd(min(round(self._textdelay * 15 / 100), 15), 'T'))
+        # Raw string value '0'-'15' used directly
+        self._write(self._buildCmd(int(self._textdelay), 'T'))
 
     def _applyTone(self):
-        # NVDA 0-100 (step 50) -> TT 0-2 via integer division
-        self._write(self._buildCmd(min(self._tone // 50, 2), 'X'))
+        # Raw string value '0'-'2' used directly
+        self._write(self._buildCmd(int(self._tone), 'X'))
 
     # ------------------------------------------------------------------
     # Worker thread
@@ -469,8 +492,8 @@ class SynthDriver(synthDriverHandler.SynthDriver):
             + self._buildCmd(min(self._articulation // 10, 9), 'A')
             + self._buildCmd(min(self._reverb // 10, 9), 'R')
             + self._buildCmd(min(self._formant, 99), 'F')
-            + self._buildCmd(min(round(self._textdelay * 15 / 100), 15), 'T')
-            + self._buildCmd(min(self._tone // 50, 2), 'X')
+            + self._buildCmd(int(self._textdelay), 'T')
+            + self._buildCmd(int(self._tone), 'X')
         )
         self._write(cmd)
 
@@ -524,15 +547,17 @@ class SynthDriver(synthDriverHandler.SynthDriver):
     def _set_formant(self, value): self._formant = value; self._applyFormant()
 
     # ------------------------------------------------------------------
-    # Text Delay — NVDA 0-100 (step 7), TT 0-15
+    # Text Delay — combo box, TT 0-15
     # ------------------------------------------------------------------
 
-    def _get_textdelay(self):        return self._textdelay
-    def _set_textdelay(self, value): self._textdelay = value; self._applyTextdelay()
+    def _get_availableTextdelays(self): return _TEXTDELAYS
+    def _get_textdelay(self):           return self._textdelay
+    def _set_textdelay(self, value):    self._textdelay = value; self._applyTextdelay()
 
     # ------------------------------------------------------------------
-    # Tone — NVDA 0-100 (step 50): 0=Bass, 50=Normal, 100=Treble
+    # Tone — combo box: Bass / Normal / Treble
     # ------------------------------------------------------------------
 
-    def _get_tone(self):        return self._tone
-    def _set_tone(self, value): self._tone = value; self._applyTone()
+    def _get_availableTones(self):  return _TONES
+    def _get_tone(self):            return self._tone
+    def _set_tone(self, value):     self._tone = value; self._applyTone()
