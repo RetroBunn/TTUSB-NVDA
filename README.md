@@ -1,9 +1,14 @@
 # TripleTalk USB / TripleTalk USB Mini for NVDA
 This is a driver for the TripleTalk USB Mini speech synthesizer from Access Solutions.
 
-This driver also works with the original TripleTalk USB, but keep in mind that the driver was tested against the Mini, so I cannot guarantee that it works with the TripleTalk USB in USB mode.
+This add-on also works with the original TripleTalk USB since they use the same Windows drivers, but keep in mind that the NVDA add-on was tested against the Mini, so I cannot guarantee that it works with the TripleTalk USB in USB mode, as I don't have access to one myself.
 
-> Note that this add-on has been vibe coded with the help of AI, so not everything might be perfect. There might be some crashes here and there, and the code might not be up to par. Human contributions and feedback is always welcome.
+> Note that this add-on has been vibe coded with the help of AI, so not everything might be perfect. There might be some crashes here and there, and the code might not be up to par. Real human contributions and feedback are always welcome.
+
+## Download
+You can download the add-on directly via the [releases](https://github.com/retroBunn/tTUSB-NVDA/releases/) tab.
+
+If you're subscribed to the [current DECtalk Archive mirror])https://dectalk.nu/) through Resilio Sync, or if you're browsing the directory, you can also download the add-on [over here](https://dectalk.nu/Software%20and%20Manuals/Software/NVDA%20Add-ons/NVDA%202019.3%20and%20Beyond/tripletalk.nvda-addon).
 
 ## Features
 This add-on features voice support, gaining access to all eleven TripleTalk USB voices via the voice selection dialog.
@@ -35,7 +40,7 @@ All extra TripleTalk parameters are accessible via NVDA's speech settings, inclu
 ## Requirements
 This driver has been tested with NVDA 2025.3. I cannot guarantee that it works with NVDA 2026.1 (which is set to be released soon).
 
-In order to use this add-on, you will need the TripleTalk USB Mini drivers to be installed and working. You can get them from [this mirror](https://dectalk.nu/Software%20and%20Manuals/Hardware/TripleTalk/Software/ttum-disk101.zip)
+In order to use this add-on, you will need the TripleTalk USB Mini drivers installed and working. You can get them from [this mirror](https://dectalk.nu/Software%20and%20Manuals/Hardware/TripleTalk/Software/ttum-disk101.zip).
 
 If you're on a 64-bit Windows install, you will need the [signed 64-bit drivers](https://dectalk.nu/Software%20and%20Manuals/Hardware/TripleTalk/Drivers/ttusb64.zip), as the 64-bit drivers included above do not work.
 
