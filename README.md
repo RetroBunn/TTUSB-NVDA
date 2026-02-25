@@ -1,9 +1,11 @@
 # TripleTalk USB / TripleTalk USB Mini for NVDA
-This is a driver for the TripleTalk USB Mini speech synthesizer from Access Solutions.
+This is a driver for the [TripleTalk USB Mini](https://www.blindmicemegamall.com/bmm/shop/Item_Detail?itemid=5323293) hardware speech synthesizer from Access Solutions.
 
 This add-on also works with the original TripleTalk USB since they use the same Windows drivers, but keep in mind that the NVDA add-on was tested against the Mini, so I cannot guarantee that it works with the TripleTalk USB in USB mode, as I don't have access to one myself.
 
-> Note that this add-on has been vibe coded with the help of AI, so not everything might be perfect. There might be some crashes here and there, and the code might not be up to par. Real human contributions and feedback are always welcome.
+> Please Note: This add-on has been vibe coded with the help of AI, so not everything might be perfect. There might be some crashes here and there, and the code might not be up to par, and some of the implementations might be hacky at best. Real human contributions, fixes, and feedback are always welcome.
+
+> Also worth noting is that this isn't a Python 3 port of the existing TripleTalk USB add-on from Alex H. This add-on was made from scratch, but credit goes to him for creating the original Python 2 driver.
 
 ## Download
 You can download the add-on directly via the [releases](https://github.com/retroBunn/tTUSB-NVDA/releases/) tab.
@@ -33,18 +35,19 @@ All these voices were taken from the official RC8660 developer manual, including
 All extra TripleTalk parameters are accessible via NVDA's speech settings, including the following extra parameters:
 - Formant (range 0 to 99 on the Mini)
 - Articulation (range 0 to 9)
-- Reverb/Delay (range 0 to 9)
+- Reverb/Echo (range 0 to 9)
 - Text Delay (range 0 to 15)
-- Tone (with three values; 0 = Bass, 1 = Normal, and 2 = Treble)
+- Tone (with three values; Bass, Normal, and Treble)
 
 ## Requirements
-This driver has been tested with NVDA 2025.3. I cannot guarantee that it works with NVDA 2026.1 (which is set to be released soon).
+This driver has been tested with NVDA 2025.3. I cannot guarantee that it works with NVDA 2026.1 (which is set to be released soon, and is to be 64-bit only). Rest assured that I'll be trying my best to get it working as soon as I can.
 
 In order to use this add-on, you will need the TripleTalk USB Mini drivers installed and working. You can get them from [this mirror](https://dectalk.nu/Software%20and%20Manuals/Hardware/TripleTalk/Software/ttum-disk101.zip).
 
-If you're on a 64-bit Windows install, you will need the [signed 64-bit drivers](https://dectalk.nu/Software%20and%20Manuals/Hardware/TripleTalk/Drivers/ttusb64.zip), as the 64-bit drivers included above do not work.
+If you're on a 64-bit Windows install, you will need the [signed 64-bit drivers](https://dectalk.nu/Software%20and%20Manuals/Hardware/TripleTalk/Drivers/ttusb64.zip), as the 64-bit drivers included above do not work. Be sure to follow the instructions in the installation manual to get your TripleTalk up and running.
+
+To check that your unit works after the Windows drivers are installed, on the TripleTalk USB Mini installation disk, go into the `utils` directory and launch `TTUAPP.EXE` or `ttuapp64.exe`. This is a utility that will allow you to send text to the TripleTalk units through the **Send Text** or **Send File** commands in the file menu.
 
 ## What's Left to Do?
 Despite the driver working as expected in casual use, there are some things that still need to be worked on.
-- Add a proper combo box for Tone.
-- Add Spanish language support.
+- Add Spanish language support so that the unit can switch to Spanish. This isn't high on my priority list, since the Spanish language is a pronunciation dictionary file, and I need to figure out how to dynamically load it, and have it show up as a separate language within NVDA's voice settings dialog as a combo box.
