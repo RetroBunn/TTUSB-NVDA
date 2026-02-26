@@ -226,8 +226,8 @@ class SynthDriver(synthDriverHandler.SynthDriver):
         SynthDriver.InflectionSetting(minStep=10),
         SynthDriver.VolumeSetting(minStep=10),
         _NumericSynthSetting('articulation', '&Articulation',    minStep=10),
-        _NumericSynthSetting('reverb',       'Re&verb',          minStep=10),
         _NumericSynthSetting('formant',      'Formant Frequency'            ),
+        _NumericSynthSetting('reverb',       'Re&verb',          minStep=10),
         DriverSetting('textdelay', 'Text &Delay'),
         DriverSetting('tone', '&Tone'),
     )
@@ -244,16 +244,10 @@ class SynthDriver(synthDriverHandler.SynthDriver):
 
     @classmethod
     def check(cls):
-        """Return True if ttusbd.dll is present and the WDM driver is active."""
+        """Return True if ttusbd.dll is present and can be loaded successfully."""
         try:
-            dll = _loadDll()
-            status = dll.USBTT_CheckWdmStatus()
-            if status != 1:
-                log.warning(
-                    f"Triple-Talk: USBTT_CheckWdmStatus() returned {status} "
-                    "(expected 1). Is the USB device connected?"
-                )
-            return status == 1
+            _loadDll()
+            return True
         except FileNotFoundError as e:
             log.warning(f"Triple-Talk: {e}")
             return False
