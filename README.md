@@ -3,7 +3,7 @@ This is a driver for the [TripleTalk USB Mini](https://www.blindmicemegamall.com
 
 This add-on also works with the original TripleTalk USB since they use the same Windows drivers, but keep in mind that the NVDA add-on was tested against the Mini, so I cannot guarantee that it works with the TripleTalk USB in USB mode, as I don't have access to one myself.
 
-> Please Note: This add-on has been vibe coded with the help of AI, so not everything might be perfect. There might be some crashes here and there, and the code might not be up to par, and some of the implementations might be hacky at best. Real human contributions, fixes, and feedback are always welcome.
+> Please Note: This add-on has been vibe coded with the help of AI, so not everything might be perfect. There might be some crashes here and there, and the code might not be up to par, and some of the implementations might be hacky at best. Despite this, however, actual human verification was done by myself and another tester who has an actual TripleTalk unit to verify everything works as intended. Real human contributions, fixes, and feedback are always welcome.
 
 > Also worth noting is that this isn't a Python 3 port of the existing TripleTalk USB add-on from Alex H. This add-on was made from scratch, but credit goes to him for creating the original Python 2 driver.
 
@@ -48,6 +48,8 @@ If you're on a 64-bit Windows install, you will need the [signed 64-bit drivers]
 
 To check that your unit works after the Windows drivers are installed, on the TripleTalk USB Mini installation disk, go into the `utils` directory and launch `TTUAPP.EXE` or `ttuapp64.exe`. This is a utility that will allow you to send text to the TripleTalk units through the **Send Text** or **Send File** commands in the file menu.
 
-## What's Left to Do?
-Despite the driver working as expected in casual use, there are some things that still need to be worked on.
-- Add Spanish language support so that the unit can switch to Spanish. This isn't high on my priority list, since the Spanish language is a pronunciation dictionary file, and I need to figure out how to dynamically load it, and have it show up as a separate language within NVDA's voice settings dialog as a combo box.
+## Current Limitations
+Despite the driver working as expected in casual use, there are some limitations that I don't think can easily be fixed.
+
+- New line pauses: When NVDA encounters a new line, for example in the File Explorer, normally it's supposed to pause in between new lines (such as the case with "This PC File Explorer, Items View List". But due to limitations with the RC8660 chip, there's no way of having it pause when it encounters new lines sent to the synthesizer. This same behavior happens when the synthesizer is being used with other screen readers such as JAWS.
+- Spanish support: The TripleTalk USB can speak Spanish, but it has to load a Spanish dictionary file. Spanish isn't planned at the moment, due to how it handles custom dictionary loading at the moment, unless someone can figure out how to get it working.
