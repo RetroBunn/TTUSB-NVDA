@@ -10,7 +10,7 @@ This add-on also works with the original TripleTalk USB since they use the same 
 ## Download
 You can download the add-on directly via the [releases](https://github.com/retroBunn/tTUSB-NVDA/releases/) tab.
 
-If you're subscribed to the [current DECtalk Archive mirror])https://dectalk.nu/) through Resilio Sync, or if you're browsing the directory, you can also download the add-on [over here](https://dectalk.nu/Software%20and%20Manuals/Software/NVDA%20Add-ons/NVDA%202019.3%20and%20Beyond/tripletalk.nvda-addon).
+If you're subscribed to the [current DECtalk Archive mirror](https://dectalk.nu/) through Resilio Sync, or if you're browsing the directory, you can also download the add-on [over here](https://dectalk.nu/Software%20and%20Manuals/Software/NVDA%20Add-ons/NVDA%202019.3%20and%20Beyond/tripletalk.nvda-addon).
 
 ## Features
 This add-on features voice support, gaining access to all eleven TripleTalk USB voices via the voice selection dialog.
@@ -31,6 +31,8 @@ The TripleTalk USB Mini, being based on the RC8660 chip, includes three addition
 - Gretchen
 
 All these voices were taken from the official RC8660 developer manual, including the proper names for Big Bob and Ricochet Randy, which have been renamed in the official TripleTalk USB developer manual to Mountain Mike and Jammin Jimmy respectively, but I decided to use the official names.
+
+Each voice has their values for pitch, inflection, articulation, reverb, tone, and formant already stored in the add-on, which get set as soon as a voice command gets sent to the synthesizer. This allows each of the  controls to be set to the desired values for each voice in the NVDA speech settings dialog. Keep in mind that all of these values have been calibrated by ear, and might not be accurate due to the lack of a list of all internal voice parameters, but I tried to be as close as I possibly could. If you have any changes to contribute, feel free to open a pull request.
 
 All extra TripleTalk parameters are accessible via NVDA's speech settings, including the following extra parameters:
 - Formant (range 0 to 99 on the Mini)
