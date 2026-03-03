@@ -402,7 +402,10 @@ class SynthDriver(synthDriverHandler.SynthDriver):
         for item in sequence:
             if isinstance(item, str):
                 # Triple-Talk only handles ASCII; replace anything else with a space
-                buf.extend(item.encode('ascii', errors='replace'))
+                # Strip \x01 (Ctrl+A, the TT command prefix) to prevent
+                # embedded commands in plain text from controlling the hardware
+                safe = item.replace('\x01', '')
+                buf.extend(safe.encode('ascii', errors='replace'))
 
             elif isinstance(item, IndexCommand):
                 flush()
