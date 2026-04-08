@@ -6,7 +6,7 @@ This page documents the various voice parameters used by the TripleTalk line of 
 
 ## Pitch
 
-This command varies the pitch over a wide range, which can be used to change the average pitch during speech production, produce manual intonation, or create sound effects (including singing). Pitch values can range from 0P through 99P; the default is 50P.
+Sets the synthesizer's baseline pitch. The speed is not affected. The RC8660's intonation algorithms will vary the pitch above and below the base pitch by an amount dependent upon the Inflection setting. The default is 50, with 0 and 99 being the accepted values, any other value outside that range will cause a wraparound.
 
 | Voice | Value |
 | --- | --- |
@@ -24,7 +24,7 @@ This command varies the pitch over a wide range, which can be used to change the
 
 ## Inflection
 
-Expression, or intonation, is the variation of pitch within a sentence or phrase. When expression is enabled (n>0), TripleTalk attempts to mimic the pitch patterns of human speech. For example, when a sentence ends with a period, the pitch drops at the end of the sentence; a question mark will cause the pitch to rise. The optional parameter n determines the degree of intonation. 0E provides no intonation (monotone), whereas 9E is very animated sounding. 5E is the default setting.
+Inflection, sometimes called expression or intonation, is the variation of pitch within a sentence or phrase. Determines how much intonation, if any, is introduced into the voice. Low values lean towards being monotonic, while large values become "sing-songy." The intonation contour is influenced by sentence structure, particularly punctuation symbols. 0 provides no intonation), whereas 9 is very animated sounding. 5 is the default setting.
 
 | Voice | Value |
 | --- | --- |
@@ -42,7 +42,7 @@ Expression, or intonation, is the variation of pitch within a sentence or phrase
 
 ## Articulation
 
-This command adjusts the articulation level, from 0A through 9A. Excessively low articulation values tend to make the voice sound slurred; very high values, on the other hand, can make the voice sound choppy. The default articulation is 5A.
+Determines the intensity of certain unvoiced sounds. Setting this control too low can make the speech sound slurred. 5 is the default, while 0 and 9 are the accepted values.
 
 | Voice | Value |
 | --- | --- |
@@ -60,7 +60,7 @@ This command adjusts the articulation level, from 0A through 9A. Excessively low
 
 ## Formant Frequency
 
-This command adjusts the synthesizer's overall frequency response (vocal tract formant frequencies), over the range 0F through 99F. By varying the frequency, voice quality can be fine-tuned or voice type changed. The default frequency is 50F.
+Varies the TTS synthesizer's internal sampling rate — the effect is similar to varying the speed of a record or tape player (both pitch and speed are affected). Default value is 50.
 
 | Voice | Value |
 | --- | --- |
@@ -78,7 +78,7 @@ This command adjusts the synthesizer's overall frequency response (vocal tract f
 
 ## Reverb
 
-This command is used to add reverberation to the voice. 0R (the default) introduces no reverb; increasing values of n correspondingly increase the reverb delay and effect. 9R is the maximum setting.
+This command is used to add reverberation to the voice. 0 (the default) introduces no reverb; increasing values increase the reverb delay and effect. 9 is the maximum setting.
 
 | Voice | Value |
 | --- | --- |
