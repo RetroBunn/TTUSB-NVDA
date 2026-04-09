@@ -1,560 +1,551 @@
-# synthDrivers/tripletalk.py
+# NVDA synth driver for the Access Solutions TripleTalk USB
+# and TripleTalk USB Mini hardware speech synthesizers.
 #
-# NVDA Synthesizer Driver for the Triple-Talk USB and USB Mini
-# by RetroBunn
-#
-# ttusbd.dll is loaded from C:\WINDOWS, where the Triple-Talk driver installer places it.
-#
-# DISCLAIMER: This add-on was vibe coded with the assistance of an AI and may contain
-# errors or unintended behaviour as a result. Real human contributions and bug fixes
-# are welcomed — if you encounter an issue, feel free to submit a correction.
-#
-
-import os
 import ctypes
-import threading
+import ctypes.wintypes
+import os
 import queue
-import synthDriverHandler
-from synthDriverHandler import SynthDriver, VoiceInfo, synthIndexReached, synthDoneSpeaking
-from autoSettingsUtils.driverSetting import DriverSetting
+import struct
+import threading
 from collections import OrderedDict
-from speech.commands import (
-    IndexCommand,
-    RateCommand,
-    PitchCommand,
-    VolumeCommand,
-    BreakCommand,
-)
-import logging
 
-log = logging.getLogger(__name__)
-
-
-# ttusbd.dll is installed system-wide into C:\WINDOWS by the Triple-Talk driver package.
-_DLL_PATH = os.path.join(os.environ.get('SystemRoot', r'C:\WINDOWS'), 'ttusbd.dll')
-
-# Triple-Talk command prefix (Control-A)
-_CMD = b'\x01'
-
-# Ctrl-X: silence and clear input buffer
-_SILENCE = 0x18
-
-# Carriage return flushes the input buffer to speech output
-_FLUSH = b'\r'
-
-
-# RC8660 voices (Table 8, RC8660 manual)
-_VOICES = {
-    '0':  VoiceInfo('0',  'Perfect Paul'),
-    '1':  VoiceInfo('1',  'Vader'),
-    '2':  VoiceInfo('2',  'Big Bob'),
-    '3':  VoiceInfo('3',  'Precise Pete'),
-    '4':  VoiceInfo('4',  'Ricochet Randy'),
-    '5':  VoiceInfo('5',  'Biff'),
-    '6':  VoiceInfo('6',  'Skip'),
-    '7':  VoiceInfo('7',  'Robo Robert'),
-    '8':  VoiceInfo('8',  'Goliath'),
-    '9':  VoiceInfo('9',  'Alvin'),
-    '10': VoiceInfo('10', 'Gretchen'),
-}
-
-# Per-voice parameter baselines.
-#
-# Pitch and formant are raw TT values (0-99), passed directly to hardware.
-# Inflection, articulation, and reverb are NVDA 0-100 scale, step-10 (tt * 10).
-# Text delay is NVDA 0-100 scale, step-7 (tt * 7).
-# Tone is a raw TT string ('0'=Bass, '1'=Normal, '2'=Treble).
-
-_VOICE_PITCH = {
-    '0':  50,
-    '1':  10,
-    '2':  40,
-    '3':  60,
-    '4':  40,
-    '5':  50,
-    '6':  15,
-    '7':  80,
-    '8':  20,
-    '9':  60,
-    '10': 99,
-}
-
-_VOICE_FORMANT = {
-    '0':  50,
-    '1':  40,
-    '2':  46,
-    '3':  52,
-    '4':  50,
-    '5':  40,
-    '6':  59,
-    '7':  54,
-    '8':  15,
-    '9':  98,
-    '10': 67,
-}
-
-_VOICE_INFLECTION = {
-    '0':  50,
-    '1':  60,
-    '2':  50,
-    '3':  40,
-    '4':  50,
-    '5':  70,
-    '6':  70,
-    '7':   0,
-    '8':  50,
-    '9':  50,
-    '10': 50,
-}
-
-_VOICE_ARTICULATION = {
-    '0':  50,
-    '1':  40,
-    '2':  50,
-    '3':  60,
-    '4':  50,
-    '5':  60,
-    '6':  60,
-    '7':  50,
-    '8':  50,
-    '9':  50,
-    '10': 50,
-}
-
-_VOICE_REVERB = {
-    '0':   0,
-    '1':  30,
-    '2':   0,
-    '3':   0,
-    '4':  90,
-    '5':   0,
-    '6':   0,
-    '7':  60,
-    '8':  20,
-    '9':   0,
-    '10':  0,
-}
-
-_VOICE_TEXTDELAY = {
-    '0':  '0',
-    '1':  '0',
-    '2':  '0',
-    '3':  '0',
-    '4':  '0',
-    '5':  '0',
-    '6':  '0',
-    '7':  '1',
-    '8':  '0',
-    '9':  '0',
-    '10': '0',
-}
-
-# Text delay combo box options — keyed by raw TT value, using VoiceInfo for NVDA compatibility
-_TEXTDELAYS = OrderedDict(
-    (str(i), VoiceInfo(str(i), str(i))) for i in range(16)
+from autoSettingsUtils.driverSetting import DriverSetting, NumericDriverSetting
+from autoSettingsUtils.utils import StringParameterInfo
+from logHandler import log
+from speech.commands import IndexCommand, PitchCommand
+from synthDriverHandler import (
+	SynthDriver,
+	VoiceInfo,
+	synthDoneSpeaking,
+	synthIndexReached,
 )
 
-_VOICE_TONE = {
-    '0':  '1',
-    '1':  '1',
-    '2':  '0',
-    '3':  '2',
-    '4':  '1',
-    '5':  '0',
-    '6':  '0',
-    '7':  '1',
-    '8':  '1',
-    '9':  '2',
-    '10': '2',
-}
-
-# Tone combo box options — keyed by raw TT value, using VoiceInfo for NVDA compatibility
-_TONES = OrderedDict([
-    ('0', VoiceInfo('0', 'Bass')),
-    ('1', VoiceInfo('1', 'Normal')),
-    ('2', VoiceInfo('2', 'Treble')),
-])
-
-# Obtained at runtime so we never directly import a private NVDA class.
-_NumericSynthSetting = type(SynthDriver.RateSetting())
-
-
-def _loadDll():
-    """
-    Load ttusbd.dll from C:\\WINDOWS, where the Triple-Talk driver installer places it.
-    Adds that directory to the DLL search path so Windows can resolve dependencies.
-    """
-    if not os.path.isfile(_DLL_PATH):
-        raise FileNotFoundError(
-            f"ttusbd.dll not found at: {_DLL_PATH}\n"
-            "Please ensure the Triple-Talk USB driver package is installed."
-        )
-
-    if hasattr(os, 'add_dll_directory'):
-        os.add_dll_directory(os.path.dirname(_DLL_PATH))
-
-    dll = ctypes.CDLL(_DLL_PATH)
-
-    dll.USBTT_WriteByteImmediate.restype  = None
-    dll.USBTT_WriteByteImmediate.argtypes = [ctypes.c_int]
-
-    dll.USBTT_WriteString.restype  = ctypes.c_int
-    dll.USBTT_WriteString.argtypes = [ctypes.c_char_p, ctypes.c_int]
-
-    dll.USBTT_CheckWdmStatus.restype  = ctypes.c_int
-    dll.USBTT_CheckWdmStatus.argtypes = []
-
-    return dll
-
-
-class SynthDriver(synthDriverHandler.SynthDriver):
-    """NVDA synthesizer driver for the Triple-Talk USB and USB Mini."""
-
-    name        = 'tripletalk'
-    description = 'Triple-Talk USB/USB Mini'
-
-    # Settings layout:
-    #   Voice, Rate, Pitch, Inflection, Volume        — standard NVDA settings
-    #   Articulation, Reverb                          — 0-9 range, minStep=10
-    #   Formant Frequency                             — 0-99 range, passed directly
-    #   Text Delay                                    — combo box (0-15)
-    #   Tone                                          — combo box (Bass / Normal / Treble)
-    supportedSettings = (
-        SynthDriver.VoiceSetting(),
-        SynthDriver.RateSetting(minStep=10),
-        SynthDriver.PitchSetting(),
-        SynthDriver.InflectionSetting(minStep=10),
-        SynthDriver.VolumeSetting(minStep=10),
-        _NumericSynthSetting('articulation', '&Articulation',    minStep=10),
-        _NumericSynthSetting('formant',      'Formant Frequency'            ),
-        _NumericSynthSetting('reverb',       'Re&verb',          minStep=10),
-        DriverSetting('textdelay', 'Text &Delay'),
-        DriverSetting('tone', '&Tone'),
-    )
-
-    supportedCommands = {
-        IndexCommand,
-        RateCommand,
-        PitchCommand,
-        VolumeCommand,
-        BreakCommand,
-    }
-
-    _DEFAULT_VOICE = '0'
-
-    @classmethod
-    def check(cls):
-        """Return True if ttusbd.dll is present and can be loaded successfully."""
-        try:
-            _loadDll()
-            return True
-        except FileNotFoundError as e:
-            log.warning(f"Triple-Talk: {e}")
-            return False
-        except Exception:
-            log.exception("Triple-Talk: unexpected error in check()")
-            return False
-
-    # ------------------------------------------------------------------
-    # Lifecycle
-    # ------------------------------------------------------------------
-
-    def __init__(self):
-        self._dll        = _loadDll()
-        self._terminated = False
-        self._writeLock  = threading.Lock()
-
-        # Initialise all settings from the default voice's baselines.
-        v = self._DEFAULT_VOICE
-        self._voice        = v
-        self._rate         = 50   # TT default 5S -> NVDA 50 (step-10 aligned)
-        self._pitch        = _VOICE_PITCH[v]
-        self._inflection   = _VOICE_INFLECTION[v]
-        self._volume       = 50   # TT default 5V
-        self._articulation = _VOICE_ARTICULATION[v]
-        self._reverb       = _VOICE_REVERB[v]
-        self._formant      = _VOICE_FORMANT[v]
-        self._textdelay    = _VOICE_TEXTDELAY[v]
-        self._tone         = _VOICE_TONE[v]
-
-        self._queue  = queue.Queue()
-        self._thread = threading.Thread(
-            target=self._worker, name='TT-Worker', daemon=True
-        )
-        self._thread.start()
-
-        self._sendImmediate(_CMD + b'@')   # hard reset
-        self._applyAllSettings()
-
-    def terminate(self):
-        """Shut down the worker thread cleanly."""
-        self._terminated = True
-        self._dll.USBTT_WriteByteImmediate(_SILENCE)
-        self._queue.put(None)
-        self._thread.join(timeout=3.0)
-
-    # ------------------------------------------------------------------
-    # Low-level send helpers
-    # ------------------------------------------------------------------
-
-    def _write(self, data: bytes):
-        """Write raw bytes to the synth. Thread-safe via _writeLock."""
-        with self._writeLock:
-            self._dll.USBTT_WriteString(data, len(data))
-
-    def _sendImmediate(self, data: bytes):
-        """Write bytes immediately, bypassing the input buffer."""
-        for b in data:
-            self._dll.USBTT_WriteByteImmediate(b)
-
-    def _buildCmd(self, param, letter: str) -> bytes:
-        """Build a Triple-Talk command string, e.g. _buildCmd(7, 'V') -> b'\\x017V'."""
-        return _CMD + str(int(param)).encode('ascii') + letter.encode('ascii')
-
-    # ------------------------------------------------------------------
-    # Settings application
-    # ------------------------------------------------------------------
-
-    def _applyAllSettings(self):
-        # Voice must come first — it resets the chip's internal voice parameters.
-        self._applyVoice()
-        self._applyRate()
-        self._applyPitch()
-        self._applyInflection()
-        self._applyVolume()
-        self._applyArticulation()
-        self._applyReverb()
-        self._applyFormant()
-        self._applyTextdelay()
-        self._applyTone()
-        # Punctuation mode 6: some punctuation spoken, numbers mode, leading-zero suppression
-        self._write(_CMD + b'6B')
-
-    def _applyVoice(self):
-        self._write(_CMD + self._voice.encode('ascii') + b'O')
-
-    def _applyRate(self):
-        # NVDA 0-100 (step 10) -> TT 0-9 via integer division, clamped at 9
-        self._write(self._buildCmd(min(self._rate // 10, 9), 'S'))
-
-    def _applyPitch(self):
-        # Passed directly, clamped to TT max of 99
-        self._write(self._buildCmd(min(self._pitch, 99), 'P'))
-
-    def _applyInflection(self):
-        # NVDA 0-100 (step 10) -> TT 0-9
-        self._write(self._buildCmd(min(self._inflection // 10, 9), 'E'))
-
-    def _applyVolume(self):
-        # NVDA 0-100 (step 10) -> TT 0-9
-        self._write(self._buildCmd(min(self._volume // 10, 9), 'V'))
-
-    def _applyArticulation(self):
-        # NVDA 0-100 (step 10) -> TT 0-9
-        self._write(self._buildCmd(min(self._articulation // 10, 9), 'A'))
-
-    def _applyReverb(self):
-        # NVDA 0-100 (step 10) -> TT 0-9
-        self._write(self._buildCmd(min(self._reverb // 10, 9), 'R'))
-
-    def _applyFormant(self):
-        # Passed directly, clamped to TT max of 99
-        self._write(self._buildCmd(min(self._formant, 99), 'F'))
-
-    def _applyTextdelay(self):
-        # Raw string value '0'-'15' used directly
-        self._write(self._buildCmd(int(self._textdelay), 'T'))
-
-    def _applyTone(self):
-        # Raw string value '0'-'2' used directly
-        self._write(self._buildCmd(int(self._tone), 'X'))
-
-    # ------------------------------------------------------------------
-    # Worker thread
-    # ------------------------------------------------------------------
-
-    def _worker(self):
-        """Drain the speech queue on a background thread."""
-        while True:
-            item = self._queue.get()
-            if item is None:
-                break
-            try:
-                if callable(item):
-                    item()
-                else:
-                    self._processSpeechSequence(item)
-            except Exception:
-                log.exception('Triple-Talk: error processing speech queue item')
-            finally:
-                self._queue.task_done()
-
-    def _processSpeechSequence(self, sequence):
-        """Convert an NVDA speech sequence into Triple-Talk commands and send to hardware."""
-        buf = bytearray()
-
-        def flush():
-            nonlocal buf
-            if buf:
-                self._write(bytes(buf) + _FLUSH)
-                buf = bytearray()
-
-        for item in sequence:
-            if isinstance(item, str):
-                # Triple-Talk only handles ASCII; replace anything else with a space
-                # Strip \x01 (Ctrl+A, the TT command prefix) to prevent
-                # embedded commands in plain text from controlling the hardware
-                safe = item.replace('\x01', '')
-                buf.extend(safe.encode('ascii', errors='replace'))
-
-            elif isinstance(item, IndexCommand):
-                flush()
-                self.lastIndex = item.index
-                if not self._terminated:
-                    synthIndexReached.notify(synth=self, index=item.index)
-
-            elif isinstance(item, RateCommand):
-                buf.extend(self._buildCmd(min(item.newValue // 10, 9), 'S'))
-
-            elif isinstance(item, PitchCommand):
-                # Absolute inline pitch command — RC8660 parameter commands take
-                # effect immediately in the stream without needing a CR flush.
-                buf.extend(self._buildCmd(min(item.newValue, 99), 'P'))
-
-            elif isinstance(item, VolumeCommand):
-                buf.extend(self._buildCmd(min(item.newValue // 10, 9), 'V'))
-
-            elif isinstance(item, BreakCommand):
-                flush()
-                self._write(b', \r' if item.time <= 200 else b'. \r')
-
-        flush()
-        if not self._terminated:
-            synthDoneSpeaking.notify(synth=self)
-
-    # ------------------------------------------------------------------
-    # NVDA SynthDriver API
-    # ------------------------------------------------------------------
-
-    def speak(self, speechSequence):
-        self._queue.put(list(speechSequence))
-
-    def cancel(self):
-        while not self._queue.empty():
-            try:
-                self._queue.get_nowait()
-                self._queue.task_done()
-            except queue.Empty:
-                break
-        self._dll.USBTT_WriteByteImmediate(_SILENCE)
-
-    def pause(self, switch):
-        if switch:
-            self._dll.USBTT_WriteByteImmediate(_SILENCE)
-
-    # ------------------------------------------------------------------
-    # Voice
-    # ------------------------------------------------------------------
-
-    def _get_availableVoices(self):
-        return _VOICES
-
-    def _get_voice(self):
-        return self._voice
-
-    def _set_voice(self, value):
-        if value not in _VOICES:
-            return
-        # Update state attributes immediately (main thread) so NVDA's getters
-        # reflect the new values at once, then queue the hardware writes so they
-        # are serialised with any speech that follows this call.
-        self._voice        = value
-        self._pitch        = _VOICE_PITCH[value]
-        self._inflection   = _VOICE_INFLECTION[value]
-        self._articulation = _VOICE_ARTICULATION[value]
-        self._reverb       = _VOICE_REVERB[value]
-        self._formant      = _VOICE_FORMANT[value]
-        self._textdelay    = _VOICE_TEXTDELAY[value]
-        self._tone         = _VOICE_TONE[value]
-        self._queue.put(self._applyVoiceParameters)
-
-    def _applyVoiceParameters(self):
-        """Apply all voice-dependent hardware parameters. Called via the queue."""
-        # Batch all parameter commands into a single locked write so the
-        # hardware never sees interleaved bytes from the worker thread.
-        cmd = (
-            _CMD + self._voice.encode('ascii') + b'O'
-            + self._buildCmd(min(self._pitch, 99), 'P')
-            + self._buildCmd(min(self._inflection // 10, 9), 'E')
-            + self._buildCmd(min(self._articulation // 10, 9), 'A')
-            + self._buildCmd(min(self._reverb // 10, 9), 'R')
-            + self._buildCmd(min(self._formant, 99), 'F')
-            + self._buildCmd(int(self._textdelay), 'T')
-            + self._buildCmd(int(self._tone), 'X')
-        )
-        self._write(cmd)
-
-    # ------------------------------------------------------------------
-    # Rate — NVDA 0-100 (step 10), TT 0-9
-    # ------------------------------------------------------------------
-
-    def _get_rate(self):        return self._rate
-    def _set_rate(self, value): self._rate = value; self._applyRate()
-
-    # ------------------------------------------------------------------
-    # Pitch — passed directly to TT (0-99)
-    # ------------------------------------------------------------------
-
-    def _get_pitch(self):        return self._pitch
-    def _set_pitch(self, value): self._pitch = value; self._applyPitch()
-
-    # ------------------------------------------------------------------
-    # Inflection — NVDA 0-100 (step 10), TT 0-9
-    # ------------------------------------------------------------------
-
-    def _get_inflection(self):        return self._inflection
-    def _set_inflection(self, value): self._inflection = value; self._applyInflection()
-
-    # ------------------------------------------------------------------
-    # Volume — NVDA 0-100 (step 10), TT 0-9
-    # ------------------------------------------------------------------
-
-    def _get_volume(self):        return self._volume
-    def _set_volume(self, value): self._volume = value; self._applyVolume()
-
-    # ------------------------------------------------------------------
-    # Articulation — NVDA 0-100 (step 10), TT 0-9
-    # ------------------------------------------------------------------
-
-    def _get_articulation(self):        return self._articulation
-    def _set_articulation(self, value): self._articulation = value; self._applyArticulation()
-
-    # ------------------------------------------------------------------
-    # Reverb — NVDA 0-100 (step 10), TT 0-9
-    # ------------------------------------------------------------------
-
-    def _get_reverb(self):        return self._reverb
-    def _set_reverb(self, value): self._reverb = value; self._applyReverb()
-
-    # ------------------------------------------------------------------
-    # Formant Frequency — passed directly to TT (0-99)
-    # ------------------------------------------------------------------
-
-    def _get_formant(self):        return self._formant
-    def _set_formant(self, value): self._formant = value; self._applyFormant()
-
-    # ------------------------------------------------------------------
-    # Text Delay — combo box, TT 0-15
-    # ------------------------------------------------------------------
-
-    def _get_availableTextdelays(self): return _TEXTDELAYS
-    def _get_textdelay(self):           return self._textdelay
-    def _set_textdelay(self, value):    self._textdelay = value; self._applyTextdelay()
-
-    # ------------------------------------------------------------------
-    # Tone — combo box: Bass / Normal / Treble
-    # ------------------------------------------------------------------
-
-    def _get_availableTones(self):  return _TONES
-    def _get_tone(self):            return self._tone
-    def _set_tone(self, value):     self._tone = value; self._applyTone()
+
+# --- Wire protocol constants -------------------------------------------------
+
+CMD = 0x01           # Ctrl-A: command introducer
+STOP = 0x18          # Ctrl-X: stop speech and flush input buffer
+NUL = 0x00           # Forces the chip to translate buffered text
+
+# Index marker IDs sent on the wire are 0..255. We reserve 255 as our
+# end-of-utterance sentinel; 0..254 are reused round-robin for NVDA's
+# IndexCommand markers.
+SENTINEL_MARKER = 255
+MAX_USER_MARKER = 254
+
+
+def _cmdSet(letter: str, value: int) -> bytes:
+	"""Build a chip command: Ctrl-A <ASCII digits of value> <letter>."""
+	return bytes([CMD]) + str(value).encode("ascii") + letter.encode("ascii")
+
+
+def _cmdIndex(value: int) -> bytes:
+	return _cmdSet("I", value)
+
+
+def _cmdRelPitch(delta: int) -> bytes:
+	"""Build a relative pitch command: Ctrl-A <+/-><digits>P.
+
+	The chip saturates relative parameters at the 0..99 range, so we don't
+	need to clamp on our side — but we do need to emit a literal sign.
+	"""
+	sign = "+" if delta >= 0 else "-"
+	return bytes([CMD]) + f"{sign}{abs(delta)}".encode("ascii") + b"P"
+
+
+_WINDIR = os.environ.get("WINDIR", r"C:\Windows")
+if struct.calcsize("P") == 8:
+	_DLL_PATH = os.path.join(_WINDIR, "System32", "ttusbd64.dll")
+else:
+	_DLL_PATH = os.path.join(_WINDIR, "ttusbd.dll")
+
+# TripleTalk USB VID/PID — shared by both the original and Mini models.
+_TT_VID = 0x0DD0
+_TT_PID = 0x1002
+
+# GUID_DEVINTERFACE_USB_DEVICE
+_GUID_USB = ctypes.c_byte * 16
+
+
+class _SP_DEVINFO_DATA(ctypes.Structure):
+	_fields_ = [
+		("cbSize", ctypes.wintypes.DWORD),
+		("ClassGuid", ctypes.c_byte * 16),
+		("DevInst", ctypes.wintypes.DWORD),
+		("Reserved", ctypes.POINTER(ctypes.c_ulong)),
+	]
+
+
+def _isDevicePresent() -> bool:
+	"""Check if a TripleTalk USB device is currently connected using SetupAPI.
+
+	This avoids the DLL entirely, so it responds correctly to hot-plug
+	without stale cached state.
+	"""
+	try:
+		setupapi = ctypes.WinDLL("setupapi")
+	except Exception:
+		return False
+
+	DIGCF_PRESENT = 0x02
+	DIGCF_ALLCLASSES = 0x04
+
+	setupapi.SetupDiGetClassDevsW.restype = ctypes.wintypes.HANDLE
+	setupapi.SetupDiGetClassDevsW.argtypes = [
+		ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_void_p, ctypes.wintypes.DWORD,
+	]
+	setupapi.SetupDiEnumDeviceInfo.restype = ctypes.wintypes.BOOL
+	setupapi.SetupDiEnumDeviceInfo.argtypes = [
+		ctypes.wintypes.HANDLE, ctypes.wintypes.DWORD, ctypes.POINTER(_SP_DEVINFO_DATA),
+	]
+	setupapi.SetupDiGetDeviceRegistryPropertyW.restype = ctypes.wintypes.BOOL
+	setupapi.SetupDiGetDeviceRegistryPropertyW.argtypes = [
+		ctypes.wintypes.HANDLE, ctypes.POINTER(_SP_DEVINFO_DATA),
+		ctypes.wintypes.DWORD, ctypes.POINTER(ctypes.wintypes.DWORD),
+		ctypes.c_void_p, ctypes.wintypes.DWORD, ctypes.POINTER(ctypes.wintypes.DWORD),
+	]
+	setupapi.SetupDiDestroyDeviceInfoList.restype = ctypes.wintypes.BOOL
+	setupapi.SetupDiDestroyDeviceInfoList.argtypes = [ctypes.wintypes.HANDLE]
+
+	hDevInfo = setupapi.SetupDiGetClassDevsW(
+		None, "USB", None, DIGCF_PRESENT | DIGCF_ALLCLASSES,
+	)
+	INVALID_HANDLE = ctypes.wintypes.HANDLE(-1).value
+	if hDevInfo is None or hDevInfo == INVALID_HANDLE:
+		return False
+
+	devInfoData = _SP_DEVINFO_DATA()
+	devInfoData.cbSize = ctypes.sizeof(_SP_DEVINFO_DATA)
+
+	target = f"VID_{_TT_VID:04X}&PID_{_TT_PID:04X}".upper()
+	found = False
+	index = 0
+
+	try:
+		while setupapi.SetupDiEnumDeviceInfo(hDevInfo, index, ctypes.byref(devInfoData)):
+			buf = ctypes.create_unicode_buffer(512)
+			SPDRP_HARDWAREID = 1
+			if setupapi.SetupDiGetDeviceRegistryPropertyW(
+				hDevInfo, ctypes.byref(devInfoData),
+				SPDRP_HARDWAREID, None, ctypes.cast(buf, ctypes.c_void_p),
+				ctypes.sizeof(buf), None,
+			):
+				hwid = buf.value.upper()
+				if target in hwid:
+					found = True
+					break
+			index += 1
+	finally:
+		setupapi.SetupDiDestroyDeviceInfoList(hDevInfo)
+
+	return found
+
+
+class _TTUSBDLL:
+	def __init__(self):
+		self._dll = ctypes.CDLL(_DLL_PATH)
+		self._dll.USBTT_CheckWdmStatus.restype = ctypes.c_int
+		self._dll.USBTT_CheckWdmStatus.argtypes = []
+		self._dll.USBTT_WriteByte.restype = None
+		self._dll.USBTT_WriteByte.argtypes = [ctypes.c_int]
+		self._dll.USBTT_WriteByteImmediate.restype = None
+		self._dll.USBTT_WriteByteImmediate.argtypes = [ctypes.c_int]
+		self._dll.USBTT_ReadyCheck.restype = ctypes.c_int
+		self._dll.USBTT_ReadyCheck.argtypes = []
+		self._dll.USBTT_ReadByte.restype = ctypes.c_int
+		self._dll.USBTT_ReadByte.argtypes = []
+
+	def checkWdmStatus(self) -> int:
+		return self._dll.USBTT_CheckWdmStatus()
+
+	def writeByte(self, value: int) -> None:
+		self._dll.USBTT_WriteByte(value)
+
+	def writeByteImmediate(self, value: int) -> None:
+		self._dll.USBTT_WriteByteImmediate(value)
+
+	def readByte(self) -> int:
+		return self._dll.USBTT_ReadByte()
+
+
+class SynthDriver(SynthDriver):
+	name = "tripletalk"
+	description = "TripleTalk USB"
+
+	supportedSettings = (
+		SynthDriver.VoiceSetting(),
+		SynthDriver.RateSetting(minStep=10),
+		SynthDriver.PitchSetting(),
+		SynthDriver.InflectionSetting(minStep=10),
+		SynthDriver.VolumeSetting(minStep=10),
+		NumericDriverSetting(
+			"articulation",
+			"&Articulation",
+			availableInSettingsRing=False,
+			defaultVal=50, minVal=0, maxVal=100, minStep=10,
+		),
+		NumericDriverSetting(
+			"formant",
+			"&Formant frequency",
+			availableInSettingsRing=False,
+			defaultVal=50, minVal=0, maxVal=100, minStep=1,
+		),
+		NumericDriverSetting(
+			"reverb",
+			"Re&verb",
+			availableInSettingsRing=False,
+			defaultVal=0, minVal=0, maxVal=100, minStep=10,
+		),
+		DriverSetting(
+			"textDelay",
+			"Text &delay",
+			availableInSettingsRing=False,
+			defaultVal="0",
+		),
+		DriverSetting(
+			"tone",
+			"&Tone",
+			availableInSettingsRing=False,
+			defaultVal="1",
+		),
+	)
+	supportedCommands = frozenset({IndexCommand, PitchCommand})
+	supportedNotifications = frozenset({synthIndexReached, synthDoneSpeaking})
+
+	_availableVoices = OrderedDict([
+		("0", VoiceInfo("0", "Perfect Paul", "en")),
+		("1", VoiceInfo("1", "Vader", "en")),
+		("2", VoiceInfo("2", "Big Bob", "en")),
+		("3", VoiceInfo("3", "Precise Pete", "en")),
+		("4", VoiceInfo("4", "Ricochet Randy", "en")),
+		("5", VoiceInfo("5", "Biff", "en")),
+		("6", VoiceInfo("6", "Skip", "en")),
+		("7", VoiceInfo("7", "Robo Robert", "en")),
+		("8", VoiceInfo("8", "Goliath", "en")),
+		("9", VoiceInfo("9", "Alvin", "en")),
+		("10", VoiceInfo("10", "Gretchen", "en")),
+	])
+
+	_VOICE_DEFAULTS = {
+		# id: pitch, inflection, articulation, formant, reverb, textDelay, tone
+		0:  {"pitch": 50, "inflection": 5, "articulation": 5, "formant": 50, "reverb": 0, "textDelay": 0, "tone": 1},  # Perfect Paul
+		1:  {"pitch": 10, "inflection": 6, "articulation": 4, "formant": 40, "reverb": 3, "textDelay": 0, "tone": 1},  # Vader
+		2:  {"pitch": 40, "inflection": 5, "articulation": 5, "formant": 46, "reverb": 0, "textDelay": 0, "tone": 0},  # Big Bob
+		3:  {"pitch": 60, "inflection": 4, "articulation": 6, "formant": 52, "reverb": 0, "textDelay": 0, "tone": 2},  # Precise Pete
+		4:  {"pitch": 40, "inflection": 5, "articulation": 5, "formant": 50, "reverb": 9, "textDelay": 0, "tone": 1},  # Ricochet Randy
+		5:  {"pitch": 50, "inflection": 7, "articulation": 6, "formant": 40, "reverb": 0, "textDelay": 0, "tone": 0},  # Biff
+		6:  {"pitch": 15, "inflection": 7, "articulation": 6, "formant": 59, "reverb": 0, "textDelay": 0, "tone": 0},  # Skip
+		7:  {"pitch": 80, "inflection": 0, "articulation": 5, "formant": 54, "reverb": 6, "textDelay": 1, "tone": 1},  # Robo Robert
+		8:  {"pitch": 20, "inflection": 5, "articulation": 5, "formant": 15, "reverb": 2, "textDelay": 0, "tone": 1},  # Goliath
+		9:  {"pitch": 60, "inflection": 5, "articulation": 5, "formant": 98, "reverb": 0, "textDelay": 0, "tone": 2},  # Alvin
+		10: {"pitch": 99, "inflection": 5, "articulation": 5, "formant": 67, "reverb": 0, "textDelay": 0, "tone": 2},  # Gretchen
+	}
+
+	@classmethod
+	def check(cls):
+		if not _isDevicePresent():
+			return False
+		if not os.path.isfile(_DLL_PATH):
+			log.debug(f"TripleTalk: DLL not found at {_DLL_PATH}")
+			return False
+		return True
+
+	def __init__(self):
+		super().__init__()
+
+		self._dll = _TTUSBDLL()
+		self._dll.checkWdmStatus()
+
+		self._chipVoice = 0
+		self._chipRate = 3
+		self._chipVolume = 5
+		_d = self._VOICE_DEFAULTS[self._chipVoice]
+		self._chipPitch = _d["pitch"]
+		self._chipInflection = _d["inflection"]
+		self._chipArticulation = _d["articulation"]
+		self._chipFormant = _d["formant"]
+		self._chipReverb = _d["reverb"]
+		self._chipTextDelay = _d["textDelay"]
+		self._chipTone = _d["tone"]
+
+		# Threading.
+		self._writeQueue: "queue.Queue" = queue.Queue()
+		self._cancelEvent = threading.Event()
+		self._stopping = threading.Event()
+
+		# Index marker bookkeeping. Maps the wire ID we sent (0..254) back
+		# to the NVDA IndexCommand index it represents. Guarded by _markerLock.
+		self._markerLock = threading.Lock()
+		self._markerMap: "dict[int, int]" = {}
+		self._nextWireID = 0
+
+		self._writerThread = threading.Thread(
+			target=self._writerLoop, name="TripleTalk-Writer", daemon=True,
+		)
+		self._readerThread = threading.Thread(
+			target=self._readerLoop, name="TripleTalk-Reader", daemon=True,
+		)
+		self._writerThread.start()
+		self._readerThread.start()
+
+		# Initial chip state: enter Text mode (with current text-delay), set
+		# the voice, set the chip's default punctuation filter (NVDA does its
+		# own symbol processing on top), and push every cached prosody value.
+		# Voice MUST come before the per-voice parameters because nO loads
+		# the voice's intrinsics and would clobber anything set earlier.
+		self._enqueue(
+			_cmdSet("T", self._chipTextDelay)
+			+ _cmdSet("O", self._chipVoice)
+			+ _cmdSet("B", 6)
+			+ _cmdSet("S", self._chipRate)
+			+ _cmdSet("P", self._chipPitch)
+			+ _cmdSet("E", self._chipInflection)
+			+ _cmdSet("V", self._chipVolume)
+			+ _cmdSet("A", self._chipArticulation)
+			+ _cmdSet("F", self._chipFormant)
+			+ _cmdSet("R", self._chipReverb)
+			+ _cmdSet("X", self._chipTone)
+			+ bytes([NUL])
+		)
+
+	# --- Lifecycle -----------------------------------------------------------
+
+	def terminate(self):
+		try:
+			self._dll.writeByteImmediate(STOP)
+		except Exception:
+			pass
+		self._stopping.set()
+		self._cancelEvent.set()
+		# Unblock the writer thread waiting on the queue.
+		self._writeQueue.put(None)
+		self._writerThread.join(timeout=2)
+		self._readerThread.join(timeout=2)
+		# Force-unload the DLL so the next __init__ gets a fresh connection
+		# to ttusb.sys. Without this, a hot-plug cycle (unplug + replug)
+		# leaves the DLL's internal handle stale and CheckWdmStatus returns 0.
+		try:
+			ctypes.windll.kernel32.FreeLibrary(self._dll._dll._handle)
+		except Exception:
+			pass
+
+	# --- Speech API ----------------------------------------------------------
+
+	def speak(self, speechSequence):
+		out = bytearray()
+		effectiveChip = self._chipPitch
+		for item in speechSequence:
+			if isinstance(item, str):
+				out += self._sanitizeText(item).encode("latin-1", errors="replace")
+			elif isinstance(item, IndexCommand):
+				wireID = self._allocWireID(item.index)
+				out += _cmdIndex(wireID)
+			elif isinstance(item, PitchCommand):
+				targetChip = max(0, min(99, self._chipPitch + item.offset))
+				delta = targetChip - effectiveChip
+				if delta != 0:
+					out += _cmdRelPitch(delta)
+					effectiveChip = targetChip
+			# All other commands are silently ignored: we only declare
+			# IndexCommand and PitchCommand in supportedCommands, so NVDA
+			# won't normally send anything else, but stay defensive.
+		if effectiveChip != self._chipPitch:
+			out += _cmdSet("P", self._chipPitch)
+		out += _cmdIndex(SENTINEL_MARKER)
+		out.append(NUL)
+		self._enqueue(bytes(out))
+
+	def cancel(self):
+		self._cancelEvent.set()
+		try:
+			while True:
+				self._writeQueue.get_nowait()
+		except queue.Empty:
+			pass
+		try:
+			self._dll.writeByteImmediate(STOP)
+		except Exception as e:
+			log.error(f"TripleTalk: cancel WriteByteImmediate failed: {e}")
+		with self._markerLock:
+			self._markerMap.clear()
+		synthDoneSpeaking.notify(synth=self)
+
+	# --- Settings ------------------------------------------------------------
+
+	def _get_rate(self):
+		return self._chipRate * 10
+
+	def _set_rate(self, value):
+		chipVal = max(0, min(10, value // 10))
+		self._chipRate = chipVal
+		self._enqueue(_cmdSet("S", chipVal) + bytes([NUL]))
+
+	def _get_pitch(self):
+		return self._chipPitch
+
+	def _set_pitch(self, value):
+		chipVal = max(0, min(99, value))
+		self._chipPitch = chipVal
+		self._enqueue(_cmdSet("P", chipVal) + bytes([NUL]))
+
+	def _get_inflection(self):
+		return self._chipInflection * 10
+
+	def _set_inflection(self, value):
+		chipVal = max(0, min(9, value // 10))
+		self._chipInflection = chipVal
+		self._enqueue(_cmdSet("E", chipVal) + bytes([NUL]))
+
+	def _get_volume(self):
+		return self._chipVolume * 10
+
+	def _set_volume(self, value):
+		chipVal = max(0, min(9, value // 10))
+		self._chipVolume = chipVal
+		self._enqueue(_cmdSet("V", chipVal) + bytes([NUL]))
+
+	def _get_articulation(self):
+		return self._chipArticulation * 10
+
+	def _set_articulation(self, value):
+		chipVal = max(0, min(9, value // 10))
+		self._chipArticulation = chipVal
+		self._enqueue(_cmdSet("A", chipVal) + bytes([NUL]))
+
+	def _get_formant(self):
+		return self._chipFormant
+
+	def _set_formant(self, value):
+		chipVal = max(0, min(99, value))
+		self._chipFormant = chipVal
+		self._enqueue(_cmdSet("F", chipVal) + bytes([NUL]))
+
+	def _get_reverb(self):
+		return self._chipReverb * 10
+
+	def _set_reverb(self, value):
+		chipVal = max(0, min(9, value // 10))
+		self._chipReverb = chipVal
+		self._enqueue(_cmdSet("R", chipVal) + bytes([NUL]))
+
+	def _get_availableTextdelays(self):
+		return OrderedDict(
+			(str(i), StringParameterInfo(str(i), str(i)))
+			for i in range(16)
+		)
+
+	def _get_textDelay(self):
+		return str(self._chipTextDelay)
+
+	def _set_textDelay(self, value):
+		try:
+			chipVal = int(value)
+		except (TypeError, ValueError):
+			return
+		if chipVal not in range(16):
+			return
+		self._chipTextDelay = chipVal
+		self._enqueue(_cmdSet("T", chipVal) + bytes([NUL]))
+
+	def _get_availableTones(self):
+		return OrderedDict([
+			("0", StringParameterInfo("0", "Bass")),
+			("1", StringParameterInfo("1", "Normal")),
+			("2", StringParameterInfo("2", "Treble")),
+		])
+
+	def _get_tone(self):
+		return str(self._chipTone)
+
+	def _set_tone(self, value):
+		try:
+			chipVal = int(value)
+		except (TypeError, ValueError):
+			return
+		if chipVal not in range(3):
+			return
+		self._chipTone = chipVal
+		self._enqueue(_cmdSet("X", chipVal) + bytes([NUL]))
+
+	def _get_voice(self):
+		return str(self._chipVoice)
+
+	def _set_voice(self, value):
+		try:
+			chipVal = int(value)
+		except (TypeError, ValueError):
+			return
+		if chipVal not in range(11):
+			return
+		self._chipVoice = chipVal
+		d = self._VOICE_DEFAULTS[chipVal]
+		self._chipPitch = d["pitch"]
+		self._chipInflection = d["inflection"]
+		self._chipArticulation = d["articulation"]
+		self._chipFormant = d["formant"]
+		self._chipReverb = d["reverb"]
+		self._chipTextDelay = d["textDelay"]
+		self._chipTone = d["tone"]
+		self._enqueue(_cmdSet("O", chipVal) + bytes([NUL]))
+
+	# --- Internals -----------------------------------------------------------
+
+	@staticmethod
+	def _sanitizeText(text: str) -> str:
+		# Replace control bytes the chip would interpret as commands
+		# (Ctrl-A, Ctrl-X, Ctrl-Y, Ctrl-^, etc.) with spaces. Keep ordinary
+		# whitespace.
+		out = []
+		for ch in text:
+			o = ord(ch)
+			if o < 0x20 and ch not in ("\t", "\n", "\r"):
+				out.append(" ")
+			else:
+				out.append(ch)
+		return "".join(out)
+
+	def _allocWireID(self, nvdaIndex: int) -> int:
+		with self._markerLock:
+			wireID = self._nextWireID
+			self._nextWireID = (self._nextWireID + 1) % (MAX_USER_MARKER + 1)
+			self._markerMap[wireID] = nvdaIndex
+			return wireID
+
+	def _enqueue(self, data: bytes) -> None:
+		self._writeQueue.put(data)
+
+	def _writerLoop(self):
+		while not self._stopping.is_set():
+			item = self._writeQueue.get()
+			if item is None:
+				break
+			# Fresh utterance: clear any leftover cancel state.
+			self._cancelEvent.clear()
+			for byte in item:
+				if self._cancelEvent.is_set():
+					break
+				try:
+					self._dll.writeByte(byte)
+				except Exception as e:
+					log.error(f"TripleTalk: WriteByte failed: {e}")
+					break
+
+	def _readerLoop(self):
+		while not self._stopping.is_set():
+			try:
+				value = self._dll.readByte()
+			except Exception as e:
+				log.error(f"TripleTalk: ReadByte failed: {e}")
+				self._stopping.wait(0.1)
+				continue
+			if value < 0:
+				# -1 = idle. Poll gently.
+				self._stopping.wait(0.02)
+				continue
+			if value == SENTINEL_MARKER:
+				synthDoneSpeaking.notify(synth=self)
+				continue
+			with self._markerLock:
+				nvdaIndex = self._markerMap.pop(value, None)
+			if nvdaIndex is not None:
+				synthIndexReached.notify(synth=self, index=nvdaIndex)
