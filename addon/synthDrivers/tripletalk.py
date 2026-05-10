@@ -27,20 +27,11 @@ CMD = 0x01           # Ctrl-A: command introducer
 STOP = 0x18          # Ctrl-X: stop speech and flush input buffer
 NUL = 0x00           # Forces the chip to translate buffered text
 
-# Index marker IDs sent on the wire are 0..255. We reserve 255 as our
-# end-of-utterance sentinel; 0..254 are reused round-robin for NVDA's
-# IndexCommand markers.
-SENTINEL_MARKER = 255
-MAX_USER_MARKER = 254
 
 
 def _cmdSet(letter: str, value: int) -> bytes:
 	"""Build a chip command: Ctrl-A <ASCII digits of value> <letter>."""
 	return bytes([CMD]) + str(value).encode("ascii") + letter.encode("ascii")
-
-
-def _cmdIndex(value: int) -> bytes:
-	return _cmdSet("I", value)
 
 
 def _cmdRelPitch(delta: int) -> bytes:
@@ -273,20 +264,10 @@ class SynthDriver(SynthDriver):
 		self._cancelEvent = threading.Event()
 		self._stopping = threading.Event()
 
-		# Index marker bookkeeping. Maps the wire ID we sent (0..254) back
-		# to the NVDA IndexCommand index it represents. Guarded by _markerLock.
-		self._markerLock = threading.Lock()
-		self._markerMap: "dict[int, int]" = {}
-		self._nextWireID = 0
-
 		self._writerThread = threading.Thread(
 			target=self._writerLoop, name="TripleTalk-Writer", daemon=True,
 		)
-		self._readerThread = threading.Thread(
-			target=self._readerLoop, name="TripleTalk-Reader", daemon=True,
-		)
 		self._writerThread.start()
-		self._readerThread.start()
 
 		# Initial chip state: enter Text mode (with current text-delay), set
 		# the voice, set the chip's default punctuation filter (NVDA does its
@@ -320,7 +301,6 @@ class SynthDriver(SynthDriver):
 		# Unblock the writer thread waiting on the queue.
 		self._writeQueue.put(None)
 		self._writerThread.join(timeout=2)
-		self._readerThread.join(timeout=2)
 		# Force-unload the DLL so the next __init__ gets a fresh connection
 		# to ttusb.sys. Without this, a hot-plug cycle (unplug + replug)
 		# leaves the DLL's internal handle stale and CheckWdmStatus returns 0.
@@ -338,22 +318,21 @@ class SynthDriver(SynthDriver):
 			if isinstance(item, str):
 				out += self._sanitizeText(item).encode("latin-1", errors="replace")
 			elif isinstance(item, IndexCommand):
-				wireID = self._allocWireID(item.index)
-				out += _cmdIndex(wireID)
+				# Fire the callback immediately so NVDA's SpeechManager
+				# knows this index was reached and can deliver the next
+				# speech chunk without waiting for the chip to catch up.
+				synthIndexReached.notify(synth=self, index=item.index)
 			elif isinstance(item, PitchCommand):
 				targetChip = max(0, min(99, self._chipPitch + item.offset))
 				delta = targetChip - effectiveChip
 				if delta != 0:
 					out += _cmdRelPitch(delta)
 					effectiveChip = targetChip
-			# All other commands are silently ignored: we only declare
-			# IndexCommand and PitchCommand in supportedCommands, so NVDA
-			# won't normally send anything else, but stay defensive.
 		if effectiveChip != self._chipPitch:
 			out += _cmdSet("P", self._chipPitch)
-		out += _cmdIndex(SENTINEL_MARKER)
 		out.append(NUL)
 		self._enqueue(bytes(out))
+		synthDoneSpeaking.notify(synth=self)
 
 	def cancel(self):
 		self._cancelEvent.set()
@@ -366,9 +345,6 @@ class SynthDriver(SynthDriver):
 			self._dll.writeByteImmediate(STOP)
 		except Exception as e:
 			log.error(f"TripleTalk: cancel WriteByteImmediate failed: {e}")
-		with self._markerLock:
-			self._markerMap.clear()
-		synthDoneSpeaking.notify(synth=self)
 
 	# --- Settings ------------------------------------------------------------
 
@@ -376,7 +352,7 @@ class SynthDriver(SynthDriver):
 		return self._chipRate * 10
 
 	def _set_rate(self, value):
-		chipVal = max(0, min(10, value // 10))
+		chipVal = max(0, min(9, value // 10))
 		self._chipRate = chipVal
 		self._enqueue(_cmdSet("S", chipVal) + bytes([NUL]))
 
@@ -504,13 +480,6 @@ class SynthDriver(SynthDriver):
 				out.append(ch)
 		return "".join(out)
 
-	def _allocWireID(self, nvdaIndex: int) -> int:
-		with self._markerLock:
-			wireID = self._nextWireID
-			self._nextWireID = (self._nextWireID + 1) % (MAX_USER_MARKER + 1)
-			self._markerMap[wireID] = nvdaIndex
-			return wireID
-
 	def _enqueue(self, data: bytes) -> None:
 		self._writeQueue.put(data)
 
@@ -521,31 +490,15 @@ class SynthDriver(SynthDriver):
 				break
 			# Fresh utterance: clear any leftover cancel state.
 			self._cancelEvent.clear()
+			cancelled = False
 			for byte in item:
 				if self._cancelEvent.is_set():
+					cancelled = True
 					break
 				try:
 					self._dll.writeByte(byte)
 				except Exception as e:
 					log.error(f"TripleTalk: WriteByte failed: {e}")
+					cancelled = True
 					break
-
-	def _readerLoop(self):
-		while not self._stopping.is_set():
-			try:
-				value = self._dll.readByte()
-			except Exception as e:
-				log.error(f"TripleTalk: ReadByte failed: {e}")
-				self._stopping.wait(0.1)
-				continue
-			if value < 0:
-				# -1 = idle. Poll gently.
-				self._stopping.wait(0.02)
-				continue
-			if value == SENTINEL_MARKER:
-				synthDoneSpeaking.notify(synth=self)
-				continue
-			with self._markerLock:
-				nvdaIndex = self._markerMap.pop(value, None)
-			if nvdaIndex is not None:
-				synthIndexReached.notify(synth=self, index=nvdaIndex)
+			pass
