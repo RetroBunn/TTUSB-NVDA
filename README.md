@@ -42,7 +42,7 @@ All extra TripleTalk parameters are accessible via NVDA's speech settings, inclu
 - Tone (with three values; Bass, Normal, and Treble)
 
 ## Requirements
-This driver has been tested with NVDA 2025.3. I cannot guarantee that it works with NVDA 2026.1 (which is set to be released soon, and is to be 64-bit only). Rest assured that I'll be trying my best to get it working as soon as I can.
+This driver has been tested with NVDA 2025.3. As of the 2.0 version of the driver, I have since added 2026.1 support and will continue to get it working as new versions of NVDA are released. It also works fine with the 2026.2 beta as well.
 
 In order to use this add-on, you will need the TripleTalk USB Mini drivers installed and working. You can get them from [this mirror](https://dectalk.nu/Software%20and%20Manuals/Hardware/TripleTalk/Software/ttum-disk101.zip).
 
