@@ -204,17 +204,17 @@ class SynthDriver(SynthDriver):
 	supportedNotifications = frozenset({synthIndexReached, synthDoneSpeaking})
 
 	_availableVoices = OrderedDict([
-		("0", VoiceInfo("0", "Perfect Paul", "en")),
-		("1", VoiceInfo("1", "Vader", "en")),
-		("2", VoiceInfo("2", "Big Bob", "en")),
-		("3", VoiceInfo("3", "Precise Pete", "en")),
-		("4", VoiceInfo("4", "Ricochet Randy", "en")),
-		("5", VoiceInfo("5", "Biff", "en")),
-		("6", VoiceInfo("6", "Skip", "en")),
-		("7", VoiceInfo("7", "Robo Robert", "en")),
-		("8", VoiceInfo("8", "Goliath", "en")),
-		("9", VoiceInfo("9", "Alvin", "en")),
-		("10", VoiceInfo("10", "Gretchen", "en")),
+		("0", VoiceInfo("0", "Perfect Paul")),
+		("1", VoiceInfo("1", "Vader")),
+		("2", VoiceInfo("2", "Big Bob")),
+		("3", VoiceInfo("3", "Precise Pete")),
+		("4", VoiceInfo("4", "Ricochet Randy")),
+		("5", VoiceInfo("5", "Biff")),
+		("6", VoiceInfo("6", "Skip")),
+		("7", VoiceInfo("7", "Robo Robert")),
+		("8", VoiceInfo("8", "Goliath")),
+		("9", VoiceInfo("9", "Alvin")),
+		("10", VoiceInfo("10", "Gretchen")),
 	])
 
 	_VOICE_DEFAULTS = {
