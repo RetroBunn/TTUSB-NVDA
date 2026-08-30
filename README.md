@@ -32,7 +32,9 @@ The TripleTalk USB Mini, being based on the RC8660 chip, includes three addition
 
 All these voices were taken from the official RC8660 developer manual, including the proper names for Big Bob and Ricochet Randy, which have been renamed in the official TripleTalk USB developer manual to Mountain Mike and Jammin Jimmy respectively, but I decided to use the official names.
 
-Each voice has their values for pitch, inflection, articulation, reverb, tone, and formant already stored in the add-on, which get set as soon as a voice command gets sent to the synthesizer. This allows each of the  controls to be set to the desired values for each voice in the NVDA speech settings dialog. Keep in mind that all of these values have been calibrated by ear, and might not be accurate due to the lack of a list of all internal voice parameters, but I tried to be as close as I possibly could. If you have any changes to contribute, feel free to open a pull request.
+Each voice has their values for pitch, inflection, articulation, reverb, tone, and formant already stored in the add-on, which get set as soon as a voice command gets sent to the synthesizer. This allows each of the  controls to be set to the desired values for each voice in the NVDA speech settings dialog. Keep in mind that all of these values have been calibrated by ear, and might not be accurate due to the lack of a list of all internal voice parameters, but I tried to be as close as I possibly could.
+
+Edit as of 08/30/2026: Turns out the RC8660 has an interrogation command, 12?, which was used to retrieve the current operating settings of the RC8660. This was used to retrieve all the internal voice parameters for each preset voice via the firmware. The good news is that my calibrated voice parameters in `voice_parameters.md` weren't far off at all.
 
 All extra TripleTalk parameters are accessible via NVDA's speech settings, including the following extra parameters:
 - Formant (range 0 to 99 on the Mini)
@@ -49,9 +51,3 @@ In order to use this add-on, you will need the TripleTalk USB Mini drivers insta
 If you're on a 64-bit Windows install, you will need the [signed 64-bit drivers](https://dectalk.nu/Software%20and%20Manuals/Hardware/TripleTalk/Drivers/ttusb64.zip), as the 64-bit drivers included above do not work. Be sure to follow the instructions in the installation manual to get your TripleTalk up and running.
 
 To check that your unit works after the Windows drivers are installed, on the TripleTalk USB Mini installation disk, go into the `utils` directory and launch `TTUAPP.EXE` or `ttuapp64.exe`. This is a utility that will allow you to send text to the TripleTalk units through the **Send Text** or **Send File** commands in the file menu.
-
-## Current Limitations
-Despite the driver working as expected in casual use, there are some limitations that I don't think can easily be fixed.
-
-- New line pauses: When NVDA encounters a new line, for example in the File Explorer, normally it's supposed to pause in between new lines (such as the case with "This PC File Explorer, Items View List". But due to limitations with the RC8660 chip, there's no way of having it pause when it encounters new lines sent to the synthesizer. This same behavior happens when the synthesizer is being used with other screen readers such as JAWS.
-- Spanish support: The TripleTalk USB can speak Spanish, but it has to load a Spanish dictionary file. Spanish isn't planned at the moment, due to how it handles custom dictionary loading at the moment, unless someone can figure out how to get it working.
